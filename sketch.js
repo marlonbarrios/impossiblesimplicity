@@ -99,11 +99,21 @@ let perlinGlow = {
   speed: 0.001,
   size: 30,
   hue: 30,
-  opacity: 1
+  opacity: 1,
+  repelForce: 0,
+  repelAngle: 0
 };
 
 // Add at the top with other variables
 let bwBuffer;  // Buffer for black and white effect
+
+// Add at the top with other variables
+let orbGlow = {
+  intensity: 0,
+  targetIntensity: 0,
+  maxSize: 1.0,  // Base size multiplier
+  pulseSpeed: 0.01
+};
 
 function preload() {
   soundFile = loadSound('emergence2.mp3');
@@ -146,26 +156,26 @@ function draw() {
     let w, h;
     
     // More extreme breathing and drifting
-    let breathe = sin(frameCount * 0.001) * 0.3;
+    let breathe = sin(frameCount * 0.001) * 0.3; // Slightly reduced breathing
     let drift = {
-      x: sin(frameCount * 0.0005) * 120 + cos(frameCount * 0.001) * 80,
+      x: sin(frameCount * 0.0005) * 120 + cos(frameCount * 0.001) * 80,  // Keep large drift
       y: sin(frameCount * 0.001) * 100 + cos(frameCount * 0.0015) * 60
     };
     
-    // More dramatic base scale changes with larger minimum size
-    let baseScale = map(sin(frameCount * 0.0003), -1, 1, 0.7, 1.2);
+    // More dramatic base scale changes with minimum size
+    let baseScale = map(sin(frameCount * 0.0003), -1, 1, 0.5, 1.1); // Minimum 50%
     baseScale += breathe;
     
     // Make video scale based on sun's position with more dramatic effect
     let sunVerticalPos = map(perlinGlow.y, 0, height, 0, 1);
-    let verticalScale = map(sunVerticalPos, 0, 1, 0.3, -0.3);
+    let verticalScale = map(sunVerticalPos, 0, 1, 0.2, -0.2);
     
     let sunHorizontalPos = map(perlinGlow.x, 0, width, 0, 1);
-    let horizontalScale = map(sunHorizontalPos, 0, 1, -0.3, 0.3);
+    let horizontalScale = map(sunHorizontalPos, 0, 1, -0.2, 0.2);
     
-    // Smooth scale transitions with larger range
+    // Smooth scale transitions with constrained range
     let targetScale = baseScale + verticalScale + horizontalScale;
-    targetScale = constrain(targetScale, 0.7, 1.2);
+    targetScale = constrain(targetScale, 0.5, 1.1); // Never smaller than 50%
     
     // Slower scale transitions for smoother changes
     if (!this.currentScale) this.currentScale = targetScale;
@@ -184,21 +194,21 @@ function draw() {
       h = w / vidRatio;
     }
     
-    // Calculate sun's influence with more dramatic movement
+    // Calculate sun's influence with more movement
     let sunAngle = atan2(perlinGlow.y - height/2, perlinGlow.x - width/2);
-    let offsetMagnitude = map(dist(perlinGlow.x, perlinGlow.y, width/2, height/2), 0, width/2, 40, 120); // More movement range
+    let offsetMagnitude = map(dist(perlinGlow.x, perlinGlow.y, width/2, height/2), 0, width/2, 20, 80);
     
     // Calculate video position with more dramatic drifting
     let videoX = (width - w)/2 - cos(sunAngle) * offsetMagnitude + drift.x;
     let videoY = (height - h)/2 - sin(sunAngle) * offsetMagnitude + drift.y;
     
     // Allow more overlap with window edges
-    videoX = constrain(videoX, -w * 0.2, width - w * 0.8);
-    videoY = constrain(videoY, -h * 0.2, height - h * 0.8);
+    videoX = constrain(videoX, -w * 0.3, width - w * 0.7);
+    videoY = constrain(videoY, -h * 0.3, height - h * 0.7);
     
-    // Add stronger parallax effect
-    videoX += (mouseX - width/2) * 0.04;
-    videoY += (mouseY - height/2) * 0.04;
+    // Add slight parallax effect
+    videoX += (mouseX - width/2) * 0.03;
+    videoY += (mouseY - height/2) * 0.03;
     
     // Final position constraints
     videoX = constrain(videoX, -w * 0.1, width - w * 0.9);
@@ -1265,13 +1275,57 @@ function updatePerlinGlow() {
     let videoProgress = 0;
     if (backgroundVideo && isVideoPlaying) {
       videoProgress = backgroundVideo.time() / backgroundVideo.duration();
-      // Fade out in the last 20% of the video
       if (videoProgress > 0.8) {
         perlinGlow.opacity = map(videoProgress, 0.8, 1, 1, 0);
       } else {
         perlinGlow.opacity = 1;
       }
     }
+    
+    // Check hand proximity if we have tracking
+    if (mediaPipe.landmarks[0]) {
+      let leftHandX = map(lerpLandmarks[0][19].x, 1, 0, 0, capture.scaledWidth);
+      let leftHandY = map(lerpLandmarks[0][19].y, 0, 1, 0, capture.scaledHeight);
+      let rightHandX = map(lerpLandmarks[0][20].x, 1, 0, 0, capture.scaledWidth);
+      let rightHandY = map(lerpLandmarks[0][20].y, 0, 1, 0, capture.scaledHeight);
+      
+      // Calculate distances from hands to orb
+      let leftDist = dist(leftHandX, leftHandY, perlinGlow.x, perlinGlow.y);
+      let rightDist = dist(rightHandX, rightHandY, perlinGlow.x, perlinGlow.y);
+      
+      // Update glow and movement based on proximity
+      let proximityThreshold = 150;
+      let repelThreshold = 100; // Distance at which orb starts moving away
+      
+      if (leftDist < proximityThreshold || rightDist < proximityThreshold) {
+        orbGlow.targetIntensity = 2.5;
+        orbGlow.maxSize = 2.0;
+        orbGlow.pulseSpeed = 0.03;
+        
+        // Calculate repel force and angle
+        if (leftDist < repelThreshold || rightDist < repelThreshold) {
+          let closestHand = leftDist < rightDist ? 
+            {x: leftHandX, y: leftHandY} : 
+            {x: rightHandX, y: rightHandY};
+          
+          // Calculate angle away from hand
+          perlinGlow.repelAngle = atan2(perlinGlow.y - closestHand.y, 
+                                       perlinGlow.x - closestHand.x);
+          
+          // Stronger repel force when closer
+          let closestDist = min(leftDist, rightDist);
+          perlinGlow.repelForce = map(closestDist, 0, repelThreshold, 15, 0);
+        }
+      } else {
+        orbGlow.targetIntensity = 1.0;
+        orbGlow.maxSize = 1.0;
+        orbGlow.pulseSpeed = 0.01;
+        perlinGlow.repelForce = lerp(perlinGlow.repelForce, 0, 0.1);
+      }
+    }
+    
+    // Smooth the intensity transition
+    orbGlow.intensity = lerp(orbGlow.intensity, orbGlow.targetIntensity, 0.1);
     
     // Don't render if fully transparent
     if (perlinGlow.opacity <= 0) return;
@@ -1286,38 +1340,50 @@ function updatePerlinGlow() {
     let targetX = width/2 + cos(angle) * radius;
     let targetY = height/2 + sin(angle) * radius;
     
+    // Add repel force to movement
+    if (perlinGlow.repelForce > 0) {
+      targetX += cos(perlinGlow.repelAngle) * perlinGlow.repelForce;
+      targetY += sin(perlinGlow.repelAngle) * perlinGlow.repelForce;
+    }
+    
+    // Keep orb within screen bounds
+    targetX = constrain(targetX, 100, width - 100);
+    targetY = constrain(targetY, 100, height - 100);
+
     if (perlinGlow.x === 0) {
       perlinGlow.x = targetX;
       perlinGlow.y = targetY;
     }
     
-    perlinGlow.x = lerp(perlinGlow.x, targetX, 0.005);
-    perlinGlow.y = lerp(perlinGlow.y, targetY, 0.005);
+    // Faster movement when being repelled
+    let moveSpeed = perlinGlow.repelForce > 0 ? 0.02 : 0.005;
+    perlinGlow.x = lerp(perlinGlow.x, targetX, moveSpeed);
+    perlinGlow.y = lerp(perlinGlow.y, targetY, moveSpeed);
     
-    // Drawing with opacity
+    // Drawing with opacity and enhanced glow
     push();
     blendMode(ADD);
     
-    let pulse = sin(frameCount * 0.01) * 0.3 + 1.2;
+    let pulse = sin(frameCount * orbGlow.pulseSpeed) * 0.5 + 1.2; // More dramatic pulse
     
-    // Apply opacity to all glow elements with smaller sizes
+    // Apply opacity and enhanced glow to all elements
     for (let i = 0; i < 12; i++) {
-      let size = perlinGlow.size * (1.5 + i * 0.3) * pulse;  // Reduced multipliers
-      let alpha = map(i, 0, 11, 150, 0) * perlinGlow.opacity;
+      let size = perlinGlow.size * (1.5 + i * 0.4) * pulse * orbGlow.intensity * orbGlow.maxSize;
+      let alpha = map(i, 0, 11, 255, 0) * perlinGlow.opacity * orbGlow.intensity;
       
       noStroke();
       fill(255, 200, 100, alpha);
       ellipse(perlinGlow.x, perlinGlow.y, size, size);
     }
     
-    // Smaller core
-    let coreSize = perlinGlow.size * 0.3 * pulse;  // Reduced from 0.5 to 0.3
-    fill(255, 220, 150, 200 * perlinGlow.opacity);
+    // Enhanced core with more dramatic effect
+    let coreSize = perlinGlow.size * 0.4 * pulse * orbGlow.intensity * orbGlow.maxSize;
+    fill(255, 220, 150, 255 * perlinGlow.opacity * orbGlow.intensity);
     ellipse(perlinGlow.x, perlinGlow.y, coreSize, coreSize);
     
-    // Smaller center
-    fill(255, 255, 200, 255 * perlinGlow.opacity);
-    ellipse(perlinGlow.x, perlinGlow.y, coreSize * 0.3, coreSize * 0.3);  // Reduced from 0.5 to 0.3
+    // Enhanced center with brighter glow
+    fill(255, 255, 200, 255 * perlinGlow.opacity * orbGlow.intensity);
+    ellipse(perlinGlow.x, perlinGlow.y, coreSize * 0.4, coreSize * 0.4);
     
     blendMode(BLEND);
     pop();
