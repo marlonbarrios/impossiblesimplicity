@@ -43,7 +43,7 @@ The work investigates the relationship between human gesture and digital respons
 Programming and Performance: Marlon Barrios Solano
 Part of: Duets in Latent Space
 
-## [GO TO LIVE APP](https://marlonbarrios.github.io/impossible-simplicity/)
+## [LIVE APP](https://marlonbarrios.github.io/impossiblesimplicity/)
 
 Created during an artistic research residency at [Lake Studios Berlin](https://lakestudiosberlin.com/) in February 2024
 
